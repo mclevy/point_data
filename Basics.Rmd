@@ -1,0 +1,640 @@
+% ESPM 298 Spatial Seminar
+% April 15th, 2013
+% Morgan Levy (mclevy@berkeley.edu)
+
+```{r chunksetup, include=FALSE} 
+# set working directory
+rm(list= ls());
+setwd("/Users/mcl/Dropbox/Year4/Spring2014/ESPM298/Point_Data")
+set.seed(1208)
+
+```
+
+# Point-Referenced Data: Traditional Geostatistical and Bayesian Modeling in R
+
+This material includes content based on lectures and code from Statistics 260: Spatial Statistics taught by [Cari Kaufman](http://www.stat.berkeley.edu/~cgk/).
+
+## Point Referenced or Geostastical Data
+
+There are different types of spatial data, which can be categorized as:
+
+* point-referenced: realizations of a random variable on continuous space
+* areal: finite areal units; observations are sums or averages
+* point-patterns or point-process data: locations themselves are random
+
+This introduction focuses on point-referenced data, common in climate and environmental data analysis:
+
+**What:**
+Point-referenced data are realizations of some variable in continuous space.
+
+**Examples:**
+Heavy metal concentrations in soil adjacent a river; temperatures in California.
+
+**Analyses:**
+* (Modeling) Construct a model representing the spatial process that governs the variable.
+* (Estimation) How is a variable of interest related to other spatial variables (e.g. how is contaminant concentration related to elevation and distance to a river?)
+* (Prediction) What is the value of the variable at unmeasured locations?
+
+#### Gaussian Parametric Assumptions
+
+A popular model for point-referenced geostatistical data is the [Gaussian Process](http://en.wikipedia.org/wiki/Gaussian_process) (GP) model. A GP generates realizations of a variable in space following a normal distribution; variables are distributed in that space according to a `covariance' function. 
+
+GP models are defined using a mean and covariance function. Mean and covariance functions can be defined explicitly (in a simulation setting), or can be estimated from data.
+
+* mean $\equiv E[Y(s)]$ for some variable $Y$ over locations $s$
+* covariance $\equiv Cov(Y(s_i), Y(s_j))$ for $Y$ at locations $i$ and $j$.
+
+The covariance function determines the degree of correlation, or similarity, over space for the variable. The covariance function can be assigned [different forms](http://en.wikipedia.org/wiki/Covariance_function#Parametric_families_of_covariance_functions). Below, we use an exponential covariance function $C(d) = exp(-d/\rho)$. $d$ is distance between points (a distance matrix), and $\rho$ is a scaling parameter determining the degree of spatial correlation.
+
+```{r, echo=TRUE}
+library(mvtnorm)
+
+## create a distance matrix
+
+m <- 1 # number of variables (to model as MVN)
+n <- 500 # the number of variable realizations
+x <- seq(0, 1, length = n) # vector from 0 to 1
+d <- as.matrix(dist(x)) # create distance matrix from x; dim=(n x n)
+
+## create two different covariance matrices
+
+sigma1 <- exp(-d/0.1) # coveriance function with rho=0.1 
+y1 <- rmvnorm(m, sigma = sigma1) # generate MVN (normal) variable
+
+sigma2 <- exp(-d/1) # coveriance function with rho=1
+y2 <- rmvnorm(m, sigma = sigma2) # generate MVN (normal) variable
+
+## look at covariance matrix: variance along diagonal, covariance else
+# dim(sigma1); sigma1[n,n]; sum(diag(sigma1))
+
+```
+
+```{r, echo=FALSE}
+# plot correlation matrix, variable realizations, and variable distributions for each rho
+
+ylim <- range(c(y1, y2)) # min & max values from the two MVN vectors
+
+par(mfrow = c(3, 2))
+image(sigma1, main = expression(paste(rho,"=0.1")))
+image(sigma2, main = expression(paste(rho,"=1")))
+matplot(x, t(y1), type = "l", ylab = "Y(x)", ylim = ylim, main = expression(paste(rho,"=0.1")))
+matplot(x, t(y2), type = "l", ylab = "Y(x)", ylim = ylim, main = expression(paste(rho,"=1")))
+hist(y1)
+hist(y2)
+
+```
+
+### Traditional Geostatistical Analysis
+
+This example makes use of the GP model framework.
+
+First, load and look at data available from the ```sp``` package: zinc concentrations in river Meuse floodplain soils. 
+
+First, we do some exploratory data analysis (EDA).
+
+```{r, echo=TRUE, fig.width=6, fig.height=5}
+## Packages
+
+library(sp, quietly = TRUE) # spatial classes - great for plotting
+library(gstat, quietly = TRUE) # classical geostatistics
+library(classInt, quietly = TRUE) # breakpoints for color plotting
+library(fields, quietly = TRUE) # used here for color scheme
+
+## Load and look
+
+data(meuse) # data is in sp package
+# help(meuse) # about the data
+dim(meuse) # dimensions of the data
+head(meuse) # first rows of data frame
+class(meuse) # data frame
+
+## Convert dataframe to SpatialPointsDataFrame
+
+coordinates(meuse) <- c("x", "y") # assign spatial coordinates
+
+## Look again
+
+meuse[1:5,1:12] # can see change in x,y to "coordinates" entries
+class(meuse) # SpatialPointsDataFrame
+summary(meuse) # Spatial characteristics summary and traditional data summary
+plot(meuse) # plots the coordinates
+
+## Plot zinc concentrations
+
+library(RColorBrewer) # color palettes; display.brewer.all()
+pal <- rev(brewer.pal(9, "Spectral"))
+
+# assign colors to `intervals' in your data
+
+fj5 <- classIntervals(meuse$zinc, n = 5, style = "pretty") # create a classIntervals object; determines breakpoints in zinc data values; also see style options "quantile" and "fisher"
+
+# classIntervals uses a variety of segmentation or cluster methods to separate data into groups (e.g. for plotting); help(classIntervals)
+
+plot(fj5, pal = pal) # plot of ECDF of zinc, with color assignments on x-axis
+
+fj5col <- findColours(fj5, pal) # assign colours to classes from classInterval object
+
+```
+
+```{r, echo=TRUE, fig.width=7, fig.height=6}
+# plot
+main <- "Zinc [mg kg-1 soil (ppm)]" # title for legend
+
+plot(meuse, col = fj5col, pch = 19)
+points(meuse, pch = 1) # outline color points
+legend("topleft", fill = attr(fj5col, "palette"), title = main, legend = names(attr(fj5col, "table")), bty = "n")
+
+```
+
+Now, we want to model the zinc concentration process over the area of interest. A simple way to do this is to fit a linear regression model representing the relationship of zinc concentration (dependent variable) to other variables (independent variables), accounting for spatial correlation in the model. The method outlined below is known as [kriging](http://en.wikipedia.org/wiki/Kriging).
+
+We are estimating the components of this simple model in two steps:
+
+* $Zinc(s) = E[Zinc(s)] + e(s)$
+* $Zinc(s) = E[Zinc(s)] + \eta(s) + \epsilon(s)$
+
+where, $s$ is a location, $e(s)$ is a zero mean stationary process (random variable), $\epsilon(s)$ is white noise (representing measurement error), and $\eta(s)$ is the spatial process.
+
+We start by estimating the mean function $E[Zinc(s)] = X(s)^T\beta$ (linear regression) where $X$ may include an intercept, polynomial terms in x and y (``trend surface model''), or other spatial covariates; the errors from this regression allow us to calculate an estimate of the spatially correlated process $\eta(s)$.
+
+Using OLS, we are estimating this model: $$ Zinc(s) = E[Zinc(s)] + e(s)$$
+
+```{r, echo=TRUE, fig.width=6, fig.height=5}
+library(nlme) # package used fit regressions w/ spatially correlated errors
+
+rm(meuse) # clear previous data
+data(meuse) # reload (in its original data frame form)
+
+par(mfrow=c(1,2))
+pairs(meuse[,c("zinc", "elev", "dist", "om")])
+
+# transform data to make relationships linear (for regression analysis)
+meuse$logzinc <- log(meuse$zinc) # log(zinc)
+meuse$sqrtdist <- sqrt(meuse$dist) # sqrt (distance)
+pairs(meuse[,c("logzinc", "elev", "sqrtdist", "om")]) # all linear relationships now
+
+names(meuse) # new set of independent variables, including transformations
+
+# Convert again (with new rows) to SpatialPointsDataFrame
+coordinates(meuse) <- c("x", "y") # assign spatial coordinates
+
+```
+
+**An aside on spatial points data frames: projection**
+
+This data set is not projected. For quick help with setting up projections, this [cheat sheet](http://www.maths.lancs.ac.uk/~rowlings/Teaching/UseR2012/cheatsheet.html) has basic commands for several spatial packages in ```R```.
+
+```{r, echo=TRUE, warning=F}
+## Estimate of the Mean function
+ 
+linmod <- lm(logzinc ~ elev + sqrtdist + om, data = meuse)
+summary(linmod) # ignore standard errors - they're wrong because of spatial correlation
+
+fitted <- predict(linmod, newdata = meuse,  na.action = na.pass) # na.pass means it will leave NA values in the returned data
+ehat <- meuse$logzinc - fitted # residuals
+
+## plot results and residuals
+
+par(mfrow=c(1,2))
+par(mar = rep(0, 4))
+
+# plot fitted/predicted values from lm regression
+fj5 <- classIntervals(fitted, n = 5, style = "fisher")
+fj5col <- findColours(fj5, pal)
+plot(meuse, col = fj5col, pch = 19)
+points(meuse, pch=1)
+legend("topleft", fill = attr(fj5col, "palette"), title = "Fitted Values",
+       legend = names(attr(fj5col, "table")), bty = "n")
+
+# plot residuals from lm regression
+fj5 <- classIntervals(ehat, n = 5, style = "fisher")
+fj5col <- findColours(fj5, pal)
+plot(meuse, col = fj5col, pch = 19)
+points(meuse, pch=1)
+legend("topleft", fill = attr(fj5col, "palette"), title = "Residuals",
+       legend = names(attr(fj5col, "table")), bty = "n")
+```
+
+We now use an empirical "plug-in" approach to estimation: use the residuals to calculate the [semivariance or semivariogram](http://en.wikipedia.org/wiki/Semivariance), which is defined as $1/2$ the variance of the variable of interest (e.g. zinc) as a function of distance. The semivariogram is (by definition) a function of the covariance - enabling estimation of a covariance function. So, choose a form for the semivariogram (e.g. spherical), and estimate its parameters (nugget, sill) using the residuals.
+
+```{r, echo=TRUE, fig.width=6, fig.height=5}
+
+### Get covariance function using linear regression results to estimate semivariogram
+
+meuse$ehat <- ehat # append residuals to meuse data object
+meuse.sub <- meuse[!is.na(ehat),] # Remove rows with missing data
+
+## Calculate the sample variogram from data; the variogram = variance of the difference between residual values at two locations)
+vg <- variogram(ehat ~ 1, data = meuse.sub)
+
+## plot semivariogram
+# plot(vg, xlab = "Distance", ylab = "Semi-variogram estimate")
+
+##  look for anisotropy
+
+# To establish isotropy (for which this geostatistical model is appropriate), we want all boxes to look the same (meaning that residual variance in all directions is the same)... this is not what we see... but ignore...
+
+vgangle <- variogram(ehat ~ 1, data = meuse.sub, alpha = c(0, 45, 90, 135)) # alpha =  direction in plane (x,y), to see directional differences in variance of residuals
+plot(vgangle, xlab = "Distance", ylab = "Semi-variogram estimate")
+
+## fit the variogram model
+
+# choose a variogram model to fit
+# show.vgms() # example plots; default sill = 1, range = 1, nugget = 0
+
+# fit
+fitvg <- fit.variogram(vg, vgm(psill = 1, model = "Sph", range = 500, nugget = 0.05), fit.method = 2)
+# fit.variogram fits ranges and/or sills to a sample variogram (in our case, "vg"); 
+# vgm generates a variogram model, using variogram parameter inputs
+# fit method chosen is OLS
+
+# plot
+print(fitvg) # gives you nugget, sill, and range
+plot(vg, fitvg, xlab = "Distance", ylab = "Semi-variogram estimate")
+
+## pull out components of the spatial model
+s2.hat <- fitvg$psill[2] # estimate sigma^2 (spatial process error)
+rho.hat <- fitvg$range[2] # estimate scaling distance; higher rho = higher corr bet pts
+tau2.hat <- fitvg$psill[1] # estimate nugget (measurement error)
+
+```
+
+Now, re-estimate the mean function using a [generalized least squares (GLS)](http://en.wikipedia.org/wiki/Generalized_least_squares) model, a linear regression that accounts for heteroskedasticity (changing variance in variables) and covariance between variables, so that the mean function takes into account the spatial correlation we've modeled.
+
+Using GLS, we are estimating this model: $$ Zinc(s) = E[Zinc(s)] + \eta(s) + \epsilon(s)$$
+
+```{r, echo=TRUE}
+## fit model with GLS
+
+# correlation here is a corStruct object generated using corSPher (nlme package); form means the model is fit on on (x,y) locations; fixed = T meaning coefficients kept fixed at their initial value rather than being allowed to vary over the optimization (see ?corSphere)
+
+# NOTE: The "nugget" input to the GLS function needs to be the proportion of the total variance (tau2 + s2) due to what we have been calling the nugget (tau2).
+
+glinmod <- gls(logzinc ~ elev + sqrtdist + om, data = meuse.sub, correlation = corSpher(value = c(range = rho.hat, nugget = tau2.hat/(tau2.hat+s2.hat)), nugget = TRUE, form=~x+y, fixed = TRUE))
+
+```
+
+We now have our final model, which explicitly models spatial correlation, giving estimates for the coefficients and proper standard errors.
+
+```{r, echo=TRUE}
+summary(glinmod)
+```
+
+We might use this model to describe the relationship between zinc concentrations and other variables (with measures of significance), or, we might use the model to predict zinc concentrations in unmeasured locations. Predictions made with this model are known as kriging predictions.
+
+See this [```gstat``` tutorial](http://cran.r-project.org/web/packages/gstat/vignettes/gstat.pdf), which uses this data set, and some canned functions.
+
+Another frequentist way to model the coefficients and variogram parameters is using the maximum likelihood method: define a (log) likelihood function for a variable (e.g. zinc) as a function of the model coefficients and variogram parameters; the coefficient and parameter values that maximize the likelihood function are the "maximum likelihood estimators", which should correspond relatively well with the kriging predictor coefficients and parameters.
+
+### Bayesian Heirarchical Method
+
+Now, we use a temperature data set over California that's already been formatted, to look at a Bayesian modeling technique getting at the same goal: estimating a model that captures variable relationships over space, and enables prediction.
+
+We want to model average temperatures using spatial locations, and elevation at those locations, only.
+
+```{r, echo=TRUE, fig.width=9, fig.height=7}
+rm(list= ls()); # clear
+
+load("CAtemps.RData") # this contains a spatial points data frame (CAtemp), and a grid of locations in CA at which we'd like to predict.
+
+# look at data
+CAtemp[1:5,1:2] # coordinates with independent and dependent variable
+CAgrid[1:5,1] # different coordinates, only have elevation data
+
+# plot function
+ploteqc <- function(spobj, z, breaks, ...){
+  pal <- rev(brewer.pal(9, "Spectral"))
+  fb <- classIntervals(z, n = length(pal), 
+                       style = "fixed", fixedBreaks = breaks)
+  col <- findColours(fb, pal)
+  plot(spobj, col = col, ...)
+  image.plot(legend.only = TRUE, zlim = range(breaks), col = pal, legend.shrink = 0.5, legend.width = 1.5)
+}
+
+par(mfrow=c(1,2))
+# range(CAtemp$avgtemp)
+breaks <- seq(40, 75, by = 5)
+ploteqc(CAtemp, CAtemp$avgtemp, breaks, pch = 19)
+map("county", region = "california", add = TRUE)
+title(main = "Avg Annual Temperatures, \n 1961-1990, Degrees F")
+
+# range(CAgrid$elevation)
+breaks <- seq(-100, 3600, by = 100)
+ploteqc(CAgrid, CAgrid$elevation, breaks, pch = 19)
+map("county", region = "california", add = TRUE)
+title(main = "Elevations at prediction locations, m")
+
+```
+
+We can go through the same process above, abbreviated here, and use traditional geostatistics to estimate a GLS:
+
+```{r, echo=TRUE,  fig.width=5, fig.height=4}
+## Preliminary model fitting (traditional geostatistical method)
+
+# OLS
+linmod <- lm(avgtemp~lon+lat+elevation, data = CAtemp)
+CAtemp$resid <- linmod$resid # add residuals to spatial data frame
+
+# semivariogram
+vg <- variogram(resid ~ 1, data = CAtemp)
+# plot(vg, xlab = "Distance", ylab = "Semi-variogram estimate")
+
+# anisotropy? 
+vgangle <- variogram(resid ~ 1, data = CAtemp, alpha = c(0, 45, 90, 135))
+plot(vgangle, xlab = "Distance", ylab = "Semi-variogram estimate")
+
+# fit semivariogram
+fitvg <- fit.variogram(vg, vgm(1, "Exp", range = 200, nugget = 1), fit.method = 2)
+plot(vg, fitvg, xlab = "Distance", ylab = "Semi-variogram estimate")
+
+## pull out semivariogram parameters
+s2.hat <- fitvg$psill[2] # estimate sigma^2 (spatial process error)
+rho.hat <- fitvg$range[2] # estimate scaling distance; higher rho = higher corr bet pts
+tau2.hat <- fitvg$psill[1] # estimate nugget (measurement error)
+
+# GLS
+
+glinmod <- gls(avgtemp ~ lon+lat+elevation, data = CAtemp,
+    correlation = corSpher(value = c(range = rho.hat, nugget = tau2.hat/(tau2.hat+s2.hat)),
+             nugget = TRUE, form=~lon+lat, fixed = TRUE))
+
+summary(glinmod) # final model
+
+```
+
+## Bayesian or Heirarchical modeling approach
+
+We are interested in the distribution of some spatial process ($\eta$) of temperature in CA; if we can model this process, we can establish estimates of relationships between temperatures and other variables (like elevation, or vegetation) that account for spatial correlation, and we can predict temperature at new locations. 
+
+Bayesian statistics is based on Bayes Theorem, which boils down to: Posterior $\propto$ Likelihood $\times$ Prior. In this example, that means:
+
+$$p(\eta, \theta|y) \propto p(y|\eta, \theta) \times p(\eta | \theta) \times p(\theta)$$
+
+where:
+
+* $p(\eta, \theta|y)$ is the joint posterior distribution we want to estimate
+* $p(y|\eta, \theta)$ is the data model / likelihood
+* $p(\eta | \theta)$ is the process model / prior
+* $p(\eta)$ is the parameter model / hyperprior
+
+We need to define a $\eta_{obs}$ (for the measurements) and $\eta_{pred}$ (for the prediction locations), but ultimately we are interested in the marginal posterior $p(\eta_{pred}|y)$. 
+
+Instead of estimating the spatial correlation parameters (as above in the traditional geostatistics case) and plugging them into a GP model (the GLS model), we use the joint posterior distribution of the unobserved variables: $p(\eta_{obs}, \eta_{pred}, \beta, \sigma^2, \rho, \tau^2)$.
+
+A hierarchical model specifies this joint probability distribution (the posterior) by decomposing the joint distribution into a number of conditional distributions, which lets you to estimate the model. 
+
+The "CAtempsexample.pdf" uploaded with this tutorial describes how parametric distributions are assigned to the unobserved parameters, as well as assumptions made about the data-generating process (a GP for temperatures), so that simple formulas (analytical conditional distribution functions) can be used to estimate the posterior distribution of interest.
+
+The code below employs those specifications and formulas.
+
+```{r, echo=TRUE}
+## Prior parameters
+
+# beta ~ MVN(m.beta , V.beta) : temperature data coefficient
+m.beta <- rep(0, 4); V.beta <- 100000 * diag(4)
+
+# signa^2 ~ InvGamma(a.s2, b.s2) : spatial error
+a.s2 <- 0.001; b.s2 <- 0.001
+
+# tau^2 ~ InvGamma(a.t2, b.t2) : measurement error
+a.t2 <- 0.001; b.t2 <- 0.001
+
+# rho ~ Gamma(a.rho, b.rho) : covariance parameter
+m.rho <- 100; v.rho <- 5000
+b.rho <- v.rho/m.rho; 
+a.rho <- m.rho/b.rho
+
+# plot prior for rho
+# rhoseq <- seq(0.01, 300, length = 100)
+# plot(rhoseq, dgamma(rhoseq, shape = a.rho, scale = b.rho), type="l")
+
+## Setup, storage, and starting values
+
+y <- CAtemp$avgtemp # obs
+n <- nrow(CAtemp) # number of obs 
+m <- nrow(CAgrid) # number of preds
+d <- rdist.earth(coordinates(CAtemp)) # distance matrix for obs
+X <- cbind(rep(1, n), CAtemp$lon, CAtemp$lat, CAtemp$elevation) # obs design matrix
+head(X)
+Xpred <- cbind(rep(1, m), CAgrid$lon, CAgrid$lat, CAgrid$elevation) # pred design matrix
+head(Xpred)
+
+## Initialize
+
+B <- 1000 # MCMC samples (should be ~ 10^4)
+
+# sample matrices
+beta.samps <- matrix(NA, nrow = 4, ncol = B)
+s2.samps <- t2.samps <- rho.samps <- rep(NA, B)
+eta.obs.samps <- matrix(NA, nrow = n, ncol = B)
+
+# starting values (from traditional geostatistical analysis!)
+beta.samps[,1] <- coef(glinmod)
+s2.samps[1] <- fitvg$psill[2]
+rho.samps[1] <- fitvg$range[2]
+t2.samps[1] <- fitvg$psill[1]
+
+```
+
+This analysis uses a hybrid [Markov Chain Monte Carlo (MCMC)](http://en.wikipedia.org/wiki/Markov_chain_Monte_Carlo) sampling algorithm, where [Metropolis Hasting](http://en.wikipedia.org/wiki/Metropolis%E2%80%93Hastings_algorithm) steps are embedded in a [Gibbs sampler](http://en.wikipedia.org/wiki/Gibbs_sampling); these are popular "random walk" algorithms for sampling from a posterior distribution.
+
+```{r, echo=TRUE}
+
+# v is tuning parameter for MH algorithm
+v.prop <- 100^2 
+
+# small v -> high acceptance, small moves; 
+# large v -> low acceptance, large moves;
+
+## MCMC sampler
+
+Gamma <- exp(-d/rho.samps[1]) # initalize Gamma matrix (from eta_obs | beta, s2, rho ~ MVN(X*beta, s2*Gamma(rho))
+Ginv <- solve(Gamma) # Inverse Gamma
+
+```
+
+```{r, echo=TRUE, eval=FALSE}
+
+library(MCMCpack) # for rinvgamma function in sampler loop
+
+## The hyrbid sampler, this is a Gibbs sampler, except for the conditional rho sampler, for which a Metropolis Hastings algorithm is used 
+
+for(i in 2:B){
+
+  if(i%%100==0) print(i)
+  
+  # plug in formulas from handout (except for rho, which uses MH)
+  
+  ## eta_obs | Rest
+  V <- solve(diag(n)/t2.samps[i-1] + Ginv/s2.samps[i-1])
+  m <- V %*% (y/t2.samps[i-1] + Ginv %*% X %*% 
+    beta.samps[,i-1] / s2.samps[i-1])
+  eta.obs.samps[,i] <- rmvnorm(1, mean = m, sigma = V, method = "svd")
+  
+  ## beta | Rest
+  V <- solve(t(X) %*% Ginv %*% X / s2.samps[i-1] + solve(V.beta))
+  m <- V %*% (t(X) %*% Ginv %*% eta.obs.samps[,i] / 
+    s2.samps[i-1] + solve(V.beta, m.beta))
+  beta.samps[,i] <- rmvnorm(1, mean = m, sigma = V, method = "svd")
+  
+  ## s2 | Rest
+  a <- a.s2 + n/2
+  resid <- eta.obs.samps[,i] - X %*% beta.samps[,i]
+  b <- b.s2 + t(resid) %*% Ginv %*% resid /2
+  s2.samps[i] <- rinvgamma(1, a, b)
+
+  ## t2 | Rest
+  a <- a.t2 + n/2
+  resid <- y - eta.obs.samps[,i]
+  b <- b.t2 + t(resid) %*% resid / 2
+  t2.samps[i] <- rinvgamma(1, a, b)
+  
+  ## rho | Rest 
+  
+  # Visualize posterior surface
+  # The ratio of this function at rho.cand to rho.samps[i-1] is what determines r
+  if(FALSE){
+  prho <- sapply(rhoseq, function(rho){
+    dmvnorm(eta.obs.samps[,i], mean = X %*% beta.samps[,i], 
+            sigma = s2.samps[i] * exp(-d/rho), log = TRUE) +
+     dgamma(rho, shape = a.rho, scale = b.rho, log = TRUE)})
+  plot(rhoseq, exp(prho), type = "l")
+  }
+  
+  rho.cand <- rnorm(1, mean = rho.samps[i-1], sd = sqrt(v.prop))
+  
+  if(rho.cand < 0){ # automatically reject
+    rho.samps[i] <- rho.samps[i-1]
+  } else {
+    # P(eta_obs | beta, s2, rho_cand)
+    lik1 <- dmvnorm(eta.obs.samps[,i], mean = X %*% beta.samps[,i],
+                    sigma = s2.samps[i] * exp(-d/rho.cand), log = TRUE)
+    # P(eta_obs | beta, s2, rho_(i-1) )
+    lik2 <- dmvnorm(eta.obs.samps[,i], mean = X %*% beta.samps[,i],
+                    sigma = s2.samps[i] * exp(-d/rho.samps[i-1]), log = TRUE)
+    # P(rho_cand )
+    p1 <- dgamma(rho.cand, shape = a.rho, scale = b.rho, log = TRUE)
+    # P(rho_(i-1) )
+    p2 <-   dgamma(rho.samps[i-1], shape = a.rho, scale = b.rho, log = TRUE)
+    
+    r <- exp(lik1 + p1 - lik2 - p2) # +_ becaues of logs
+    
+    if(runif(1) < r){ # accept
+      rho.samps[i] <- rho.cand
+      Gamma <- exp(-d/rho.cand) 
+      Ginv <- solve(Gamma)
+    } else { # reject
+      rho.samps[i] <- rho.samps[i-1]
+    }
+  }
+
+}
+
+# save data
+# save(beta.samps,s2.samps,rho.samps,t2.samps,eta.obs.samps,file="samps.Rdata")
+
+```
+
+Run some diagnostics to see how well the posterior distributions converged.
+
+```{r, echo=FALSE}
+load("samps.Rdata") # load from previous run
+```
+
+```{r, echo=TRUE}
+## Diagnostics
+
+# plot samples
+par(mfrow=c(2,3))
+
+plot(beta.samps[1,], type = "l")
+plot(s2.samps, type = "l")
+plot(rho.samps, type = "l")
+plot(t2.samps, type = "l")
+plot(eta.obs.samps[1,], type = "l")
+
+# look at acceptance rate for rho in sampler
+length(unique(rho.samps[1:B]))/B # acceptance rate; want around 25%
+
+# remove burn-in to remove starting value effects
+burnin <- 100
+s2.final <- s2.samps[-(1:burnin)]
+t2.final <- t2.samps[-(1:burnin)]
+beta.final <- beta.samps[,-(1:burnin)]
+eta.obs.final <- eta.obs.samps[,-(1:burnin)]
+rho.final <- rho.samps[-(1:burnin)]
+
+# plot autocorrelation functions - want these as close to white noise as possible
+par(mfrow=c(2,3))
+acf(s2.final)
+acf(t2.final)
+acf(beta.final[1,]) # beta.final[1,] is the intercept == mean
+acf(eta.obs.final[1,])
+acf(rho.final)
+
+```
+
+```{r, echo=TRUE}
+# Samples size adjusted for autocorrelation
+library(coda, quietly = TRUE)
+effectiveSize(s2.final)
+effectiveSize(t2.final)
+effectiveSize(beta.final[1,])
+effectiveSize(eta.obs.final[1,])
+effectiveSize(rho.final)
+
+```
+
+Now, we can predict temperatures at the new locations - see formulas (based on multivariate normal conditional equations) in the "CAtempsexample.pdf".
+
+```{r, echo=FALSE, fig.width=9, fig.height=7}
+
+## Prediction
+
+# distance matrices (used for covariance matrices used in prediction calculation)
+dcross <- rdist.earth(coordinates(CAtemp), coordinates(CAgrid)) # cross dist matrix
+dpred <- rdist.earth(coordinates(CAgrid)) # pred dist matrix
+
+index <- seq(1, B-burnin, by = 100) # which samples to use (thinning)
+eta.pred <- matrix(NA, nrow = nrow(CAgrid), ncol = length(index)) # initialize
+
+
+for(i in 1:length(index)){
+  # print(i)
+  j <- index[i]
+  
+  # Construct the covariance matrices (from process model formulae)
+  Gamma <- exp(-d/rho.samps[j]) 
+  Ginv <- solve(Gamma)
+  g <- exp(-dcross/rho.samps[j])
+  Gpred <- exp(-dpred/rho.samps[j])
+  
+  # formulas from handout
+  m <- Xpred %*% beta.final[,j] + t(g) %*% Ginv %*% 
+    (y - X %*% beta.final[,j])
+  V <- s2.final[j] * (Gpred - t(g)%*%Ginv%*%g)
+  eta.pred[,i] <- rmvnorm(1, m, V, method = "svd")
+}
+
+## Find posterior means and sds
+
+eta.pred.m <- apply(eta.pred, 1, mean) # mean over the thinned samples
+eta.pred.sd <- apply(eta.pred, 1, sd) # sd over the thinned samples
+
+par(mfrow=c(1,2))
+
+# range(eta.pred.m)
+breaks <- seq(30, 80, by = 5)
+ploteqc(CAgrid, eta.pred.m, breaks, pch = 19)
+map("county", region = "california", add = TRUE)
+title(main = "Posterior Mean")
+
+# range(eta.pred.sd)
+breaks <- seq(0, 4, by = 0.2)
+ploteqc(CAgrid, eta.pred.sd, breaks, pch = 19)
+map("county", region = "california", add = TRUE)
+points(CAtemp)
+title(main = "Posterior Standard Deviation")
+
+
+```
