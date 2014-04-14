@@ -1,5 +1,5 @@
 % ESPM 298 Spatial Seminar
-% April 15th, 2013
+% April 16th, 2013
 % Morgan Levy (mclevy@berkeley.edu)
 
 
@@ -11,7 +11,7 @@ This material includes content based on lectures and code from Statistics 260: S
 
 ## Point Referenced or Geostastical Data
 
-There are different types of spatial data, which can generally be categorized into these categories:
+There are different types of spatial data, which can be categorized as:
 
 * point-referenced: realizations of a random variable on continuous space
 * areal: finite areal units; observations are sums or averages
@@ -65,7 +65,7 @@ y2 <- rmvnorm(m, sigma = sigma2)  # generate MVN (normal) variable
 ```
 
 
-![plot of chunk unnamed-chunk-2](figure/unnamed-chunk-2.png) 
+![ ](figure/unnamed-chunk-2.png) 
 
 
 ### Traditional Geostatistical Analysis
@@ -223,7 +223,7 @@ summary(meuse)  # Spatial characteristics summary and traditional data summary
 plot(meuse)  # plots the coordinates
 ```
 
-![plot of chunk unnamed-chunk-3](figure/unnamed-chunk-31.png) 
+![ ](figure/unnamed-chunk-31.png) 
 
 ```r
 
@@ -242,7 +242,7 @@ fj5 <- classIntervals(meuse$zinc, n = 5, style = "pretty")  # create a classInte
 plot(fj5, pal = pal)  # plot of ECDF of zinc, with color assignments on x-axis
 ```
 
-![plot of chunk unnamed-chunk-3](figure/unnamed-chunk-32.png) 
+![ ](figure/unnamed-chunk-32.png) 
 
 ```r
 
@@ -261,7 +261,7 @@ legend("topleft", fill = attr(fj5col, "palette"), title = main, legend = names(a
     "table")), bty = "n")
 ```
 
-![plot of chunk unnamed-chunk-4](figure/unnamed-chunk-4.png) 
+![ ](figure/unnamed-chunk-4.png) 
 
 
 Now, we want to model the zinc concentration process over the area of interest. A simple way to do this is to fit a linear regression model representing the relationship of zinc concentration (dependent variable) to other variables (independent variables), accounting for spatial correlation in the model. The method outlined below is known as [kriging](http://en.wikipedia.org/wiki/Kriging).
@@ -288,7 +288,7 @@ par(mfrow = c(1, 2))
 pairs(meuse[, c("zinc", "elev", "dist", "om")])
 ```
 
-![plot of chunk unnamed-chunk-5](figure/unnamed-chunk-51.png) 
+![ ](figure/unnamed-chunk-51.png) 
 
 ```r
 
@@ -298,7 +298,7 @@ meuse$sqrtdist <- sqrt(meuse$dist)  # sqrt (distance)
 pairs(meuse[, c("logzinc", "elev", "sqrtdist", "om")])  # all linear relationships now
 ```
 
-![plot of chunk unnamed-chunk-5](figure/unnamed-chunk-52.png) 
+![ ](figure/unnamed-chunk-52.png) 
 
 ```r
 
@@ -320,7 +320,7 @@ coordinates(meuse) <- c("x", "y")  # assign spatial coordinates
 
 **An aside on spatial points data frames: projection**
 
-This data set is not projected. For quick help with setting up projections, see this [cheat sheet](http://www.maths.lancs.ac.uk/~rowlings/Teaching/UseR2012/cheatsheet.html) has basic commands for several spatial packages in ```R```.
+This data set is not projected. For quick help with setting up projections, this [cheat sheet](http://www.maths.lancs.ac.uk/~rowlings/Teaching/UseR2012/cheatsheet.html) has basic commands for several spatial packages in ```R```.
 
 
 ```r
@@ -381,10 +381,10 @@ legend("topleft", fill = attr(fj5col, "palette"), title = "Residuals", legend = 
     "table")), bty = "n")
 ```
 
-![plot of chunk unnamed-chunk-6](figure/unnamed-chunk-6.png) 
+![ ](figure/unnamed-chunk-6.png) 
 
 
-We now use an empirical `plug-in' approach to estimation: use the residuals to calculate the [semivariance or semivariogram](http://en.wikipedia.org/wiki/Semivariance), which is defined as $1/2$ the variance of the variable of interest (e.g. zinc) as a function of distance. The semivariogram is (by definition) a function of the covariance - enabling estimation of a covariance function. So, choose a form for the semivariogram (e.g. spherical), and estimate its parameters (nugget, sill) using the residuals.
+We now use an empirical "plug-in" approach to estimation: use the residuals to calculate the [semivariance or semivariogram](http://en.wikipedia.org/wiki/Semivariance), which is defined as $1/2$ the variance of the variable of interest (e.g. zinc) as a function of distance. The semivariogram is (by definition) a function of the covariance - enabling estimation of a covariance function. So, choose a form for the semivariogram (e.g. spherical), and estimate its parameters (nugget, sill) using the residuals.
 
 
 ```r
@@ -413,7 +413,7 @@ vgangle <- variogram(ehat ~ 1, data = meuse.sub, alpha = c(0, 45, 90, 135))  # a
 plot(vgangle, xlab = "Distance", ylab = "Semi-variogram estimate")
 ```
 
-![plot of chunk unnamed-chunk-7](figure/unnamed-chunk-71.png) 
+![ ](figure/unnamed-chunk-71.png) 
 
 ```r
 
@@ -443,7 +443,7 @@ print(fitvg)  # gives you nugget, sill, and range
 plot(vg, fitvg, xlab = "Distance", ylab = "Semi-variogram estimate")
 ```
 
-![plot of chunk unnamed-chunk-7](figure/unnamed-chunk-72.png) 
+![ ](figure/unnamed-chunk-72.png) 
 
 ```r
 
@@ -588,7 +588,7 @@ map("county", region = "california", add = TRUE)
 title(main = "Elevations at prediction locations, m")
 ```
 
-![plot of chunk unnamed-chunk-10](figure/unnamed-chunk-10.png) 
+![ ](figure/unnamed-chunk-10.png) 
 
 
 We can go through the same process above, abbreviated here, and use traditional geostatistics to estimate a GLS:
@@ -610,7 +610,7 @@ vgangle <- variogram(resid ~ 1, data = CAtemp, alpha = c(0, 45, 90, 135))
 plot(vgangle, xlab = "Distance", ylab = "Semi-variogram estimate")
 ```
 
-![plot of chunk unnamed-chunk-11](figure/unnamed-chunk-111.png) 
+![ ](figure/unnamed-chunk-111.png) 
 
 ```r
 
@@ -619,7 +619,7 @@ fitvg <- fit.variogram(vg, vgm(1, "Exp", range = 200, nugget = 1), fit.method = 
 plot(vg, fitvg, xlab = "Distance", ylab = "Semi-variogram estimate")
 ```
 
-![plot of chunk unnamed-chunk-11](figure/unnamed-chunk-112.png) 
+![ ](figure/unnamed-chunk-112.png) 
 
 ```r
 
@@ -789,7 +789,9 @@ v.prop <- 100^2
 
 ## MCMC sampler
 
-Gamma <- exp(-d/rho.samps[1])  # initalize Gamma matrix (from eta_obs | beta, s2, rho ~ MVN(X*beta, s2*Gamma(rho))
+# initalize Gamma matrix (from eta_obs | beta, s2, rho ~ MVN(X*beta,
+# s2*Gamma(rho))
+Gamma <- exp(-d/rho.samps[1])
 Ginv <- solve(Gamma)  # Inverse Gamma
 ```
 
@@ -925,7 +927,7 @@ rho.final <- rho.samps[-(1:burnin)]
 par(mfrow = c(2, 3))
 ```
 
-![plot of chunk unnamed-chunk-16](figure/unnamed-chunk-161.png) 
+![ ](figure/unnamed-chunk-161.png) 
 
 ```r
 acf(s2.final)
@@ -935,7 +937,7 @@ acf(eta.obs.final[1, ])
 acf(rho.final)
 ```
 
-![plot of chunk unnamed-chunk-16](figure/unnamed-chunk-162.png) 
+![ ](figure/unnamed-chunk-162.png) 
 
 
 
@@ -994,5 +996,5 @@ Now, we can predict temperatures at the new locations - see formulas (based on m
 ## Warning: variable range greater than fixedBreaks
 ```
 
-![plot of chunk unnamed-chunk-18](figure/unnamed-chunk-18.png) 
+![ ](figure/unnamed-chunk-18.png) 
 

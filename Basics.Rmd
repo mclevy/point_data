@@ -1,5 +1,5 @@
 % ESPM 298 Spatial Seminar
-% April 15th, 2013
+% April 16th, 2013
 % Morgan Levy (mclevy@berkeley.edu)
 
 ```{r chunksetup, include=FALSE} 
@@ -46,7 +46,7 @@ GP models are defined using a mean and covariance function. Mean and covariance 
 
 The covariance function determines the degree of correlation, or similarity, over space for the variable. The covariance function can be assigned [different forms](http://en.wikipedia.org/wiki/Covariance_function#Parametric_families_of_covariance_functions). Below, we use an exponential covariance function $C(d) = exp(-d/\rho)$. $d$ is distance between points (a distance matrix), and $\rho$ is a scaling parameter determining the degree of spatial correlation.
 
-```{r, echo=TRUE}
+```{r, echo=TRUE, fig.cap=" "}
 library(mvtnorm)
 
 ## create a distance matrix
@@ -69,7 +69,7 @@ y2 <- rmvnorm(m, sigma = sigma2) # generate MVN (normal) variable
 
 ```
 
-```{r, echo=FALSE}
+```{r, echo=FALSE, fig.cap=" "}
 # plot correlation matrix, variable realizations, and variable distributions for each rho
 
 ylim <- range(c(y1, y2)) # min & max values from the two MVN vectors
@@ -92,7 +92,7 @@ First, load and look at data available from the ```sp``` package: zinc concentra
 
 First, we do some exploratory data analysis (EDA).
 
-```{r, echo=TRUE, fig.width=6, fig.height=5}
+```{r, echo=TRUE, fig.width=6, fig.height=5, fig.cap=" "}
 ## Packages
 
 library(sp, quietly = TRUE) # spatial classes - great for plotting
@@ -136,7 +136,7 @@ fj5col <- findColours(fj5, pal) # assign colours to classes from classInterval o
 
 ```
 
-```{r, echo=TRUE, fig.width=7, fig.height=6}
+```{r, echo=TRUE, fig.width=7, fig.height=6, fig.cap=" "}
 # plot
 main <- "Zinc [mg kg-1 soil (ppm)]" # title for legend
 
@@ -159,7 +159,7 @@ We start by estimating the mean function $E[Zinc(s)] = X(s)^T\beta$ (linear regr
 
 Using OLS, we are estimating this model: $$ Zinc(s) = E[Zinc(s)] + e(s)$$
 
-```{r, echo=TRUE, fig.width=6, fig.height=5}
+```{r, echo=TRUE, fig.width=6, fig.height=5, fig.cap=" "}
 library(nlme) # package used fit regressions w/ spatially correlated errors
 
 rm(meuse) # clear previous data
@@ -184,7 +184,7 @@ coordinates(meuse) <- c("x", "y") # assign spatial coordinates
 
 This data set is not projected. For quick help with setting up projections, this [cheat sheet](http://www.maths.lancs.ac.uk/~rowlings/Teaching/UseR2012/cheatsheet.html) has basic commands for several spatial packages in ```R```.
 
-```{r, echo=TRUE, warning=F}
+```{r, echo=TRUE, warning=F, fig.cap=" "}
 ## Estimate of the Mean function
  
 linmod <- lm(logzinc ~ elev + sqrtdist + om, data = meuse)
@@ -217,7 +217,7 @@ legend("topleft", fill = attr(fj5col, "palette"), title = "Residuals",
 
 We now use an empirical "plug-in" approach to estimation: use the residuals to calculate the [semivariance or semivariogram](http://en.wikipedia.org/wiki/Semivariance), which is defined as $1/2$ the variance of the variable of interest (e.g. zinc) as a function of distance. The semivariogram is (by definition) a function of the covariance - enabling estimation of a covariance function. So, choose a form for the semivariogram (e.g. spherical), and estimate its parameters (nugget, sill) using the residuals.
 
-```{r, echo=TRUE, fig.width=6, fig.height=5}
+```{r, echo=TRUE, fig.width=6, fig.height=5, fig.cap=" "}
 
 ### Get covariance function using linear regression results to estimate semivariogram
 
@@ -263,7 +263,7 @@ Now, re-estimate the mean function using a [generalized least squares (GLS)](htt
 
 Using GLS, we are estimating this model: $$ Zinc(s) = E[Zinc(s)] + \eta(s) + \epsilon(s)$$
 
-```{r, echo=TRUE}
+```{r, echo=TRUE, fig.cap=" "}
 ## fit model with GLS
 
 # correlation here is a corStruct object generated using corSPher (nlme package); form means the model is fit on on (x,y) locations; fixed = T meaning coefficients kept fixed at their initial value rather than being allowed to vary over the optimization (see ?corSphere)
@@ -292,7 +292,7 @@ Now, we use a temperature data set over California that's already been formatted
 
 We want to model average temperatures using spatial locations, and elevation at those locations, only.
 
-```{r, echo=TRUE, fig.width=9, fig.height=7}
+```{r, echo=TRUE, fig.width=9, fig.height=7, fig.cap=" "}
 rm(list= ls()); # clear
 
 load("CAtemps.RData") # this contains a spatial points data frame (CAtemp), and a grid of locations in CA at which we'd like to predict.
@@ -328,7 +328,7 @@ title(main = "Elevations at prediction locations, m")
 
 We can go through the same process above, abbreviated here, and use traditional geostatistics to estimate a GLS:
 
-```{r, echo=TRUE,  fig.width=5, fig.height=4}
+```{r, echo=TRUE,  fig.width=5, fig.height=4, fig.cap=" "}
 ## Preliminary model fitting (traditional geostatistical method)
 
 # OLS
@@ -387,7 +387,7 @@ The "CAtempsexample.pdf" uploaded with this tutorial describes how parametric di
 
 The code below employs those specifications and formulas.
 
-```{r, echo=TRUE}
+```{r, echo=TRUE, fig.cap=" "}
 ## Prior parameters
 
 # beta ~ MVN(m.beta , V.beta) : temperature data coefficient
@@ -448,7 +448,8 @@ v.prop <- 100^2
 
 ## MCMC sampler
 
-Gamma <- exp(-d/rho.samps[1]) # initalize Gamma matrix (from eta_obs | beta, s2, rho ~ MVN(X*beta, s2*Gamma(rho))
+# initalize Gamma matrix (from eta_obs | beta, s2, rho ~ MVN(X*beta, s2*Gamma(rho))
+Gamma <- exp(-d/rho.samps[1]) 
 Ginv <- solve(Gamma) # Inverse Gamma
 
 ```
@@ -541,7 +542,7 @@ Run some diagnostics to see how well the posterior distributions converged.
 load("samps.Rdata") # load from previous run
 ```
 
-```{r, echo=TRUE}
+```{r, echo=TRUE, fig.cap=" "}
 ## Diagnostics
 
 # plot samples
@@ -587,7 +588,7 @@ effectiveSize(rho.final)
 
 Now, we can predict temperatures at the new locations - see formulas (based on multivariate normal conditional equations) in the "CAtempsexample.pdf".
 
-```{r, echo=FALSE, fig.width=9, fig.height=7}
+```{r, echo=FALSE, fig.width=9, fig.height=7, fig.cap=" "}
 
 ## Prediction
 
