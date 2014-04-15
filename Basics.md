@@ -27,23 +27,25 @@ Heavy metal concentrations in soil adjacent a river; temperatures in California.
 
 **Analyses:**
 * (Modeling) Construct a model representing the spatial process that governs the variable.
-* (Estimation) How is a variable of interest related to other spatial variables (e.g. how is contaminant concentration related to elevation and distance to a river?)
+* (Estimation) How is a variable of interest related to other variables (e.g. how is contaminant concentration related to elevation and distance to a river?)
 * (Prediction) What is the value of the variable at unmeasured locations?
 
 #### Gaussian Parametric Assumptions
 
-A popular model for point-referenced geostatistical data is the [Gaussian Process](http://en.wikipedia.org/wiki/Gaussian_process) (GP) model. A GP generates realizations of a variable in space following a normal distribution; variables are distributed in that space according to a `covariance' function. 
+A popular model for point-referenced geostatistical data is the [Gaussian Process](http://en.wikipedia.org/wiki/Gaussian_process) (GP) model. A GP generates realizations of a variable in space following a normal distribution; variables are distributed in that space according to a covariance function. 
 
 GP models are defined using a mean and covariance function. Mean and covariance functions can be defined explicitly (in a simulation setting), or can be estimated from data.
 
 * mean $\equiv E[Y(s)]$ for some variable $Y$ over locations $s$
-* covariance $\equiv Cov(Y(s_i), Y(s_j))$ for $Y$ at locations $i$ and $j$.
+* covariance $\equiv Cov(Y(s_i), Y(s_j)) = E[Y(s_i)Y(s_j)] - E[Y(s_i)]E[Y(s_j)]$ for $Y$ at locations $i$ and $j$.
 
 The covariance function determines the degree of correlation, or similarity, over space for the variable. The covariance function can be assigned [different forms](http://en.wikipedia.org/wiki/Covariance_function#Parametric_families_of_covariance_functions). Below, we use an exponential covariance function $C(d) = exp(-d/\rho)$. $d$ is distance between points (a distance matrix), and $\rho$ is a scaling parameter determining the degree of spatial correlation.
 
 
 ```r
+# load package to generate MVN variables
 library(mvtnorm)
+## if you see a package you don't have, do this: install.packages(mvtnorm)
 
 ## create a distance matrix
 
@@ -68,40 +70,21 @@ y2 <- rmvnorm(m, sigma = sigma2)  # generate MVN (normal) variable
 ![ ](figure/unnamed-chunk-2.png) 
 
 
+The following examples makes use of the GP model framework (in one way or another).
+
 ### Traditional Geostatistical Analysis
 
-This example makes use of the GP model framework.
-
-First, load and look at data available from the ```sp``` package: zinc concentrations in river Meuse floodplain soils. 
+First, load and look at data available from the ```sp``` package: zinc concentrations in river Meuse (NL) floodplain soils. 
 
 First, we do some exploratory data analysis (EDA).
 
 
 ```r
-## Packages
-
-library(sp, quietly = TRUE)  # spatial classes - great for plotting
-library(gstat, quietly = TRUE)  # classical geostatistics
-library(classInt, quietly = TRUE)  # breakpoints for color plotting
-library(fields, quietly = TRUE)  # used here for color scheme
-```
-
-```
-## Loading required package: grid
-## Spam version 0.40-0 (2013-09-11) is loaded.
-## Type 'help( Spam)' or 'demo( spam)' for a short introduction 
-## and overview of this package.
-## Help for individual functions is also obtained by adding the
-## suffix '.spam' to the function name, e.g. 'help( chol.spam)'.
-## 
-## Attaching package: 'spam'
-## 
-## The following objects are masked from 'package:base':
-## 
-##     backsolve, forwardsolve
-```
-
-```r
+## Load some more packages
+library(sp)  # spatial classes - great for plotting
+library(gstat)  # classical geostatistics
+library(classInt)  # breakpoints for color plotting
+library(fields)  # used here for color scheme
 
 ## Load and look
 
@@ -148,6 +131,7 @@ class(meuse)  # data frame
 ## Convert dataframe to SpatialPointsDataFrame
 
 coordinates(meuse) <- c("x", "y")  # assign spatial coordinates
+# see ?sp
 
 ## Look again
 
@@ -220,6 +204,15 @@ summary(meuse)  # Spatial characteristics summary and traditional data summary
 ```
 
 ```r
+
+par(mfrow = c(, 1, 1))
+```
+
+```
+## Error: argument 1 is empty
+```
+
+```r
 plot(meuse)  # plots the coordinates
 ```
 
@@ -237,7 +230,7 @@ pal <- rev(brewer.pal(9, "Spectral"))
 fj5 <- classIntervals(meuse$zinc, n = 5, style = "pretty")  # create a classIntervals object; determines breakpoints in zinc data values; also see style options 'quantile' and 'fisher'
 
 # classIntervals uses a variety of segmentation or cluster methods to
-# separate data into groups (e.g. for plotting); help(classIntervals)
+# separate data into groups (e.g. for plotting); see ?classIntervals
 
 plot(fj5, pal = pal)  # plot of ECDF of zinc, with color assignments on x-axis
 ```
@@ -253,18 +246,17 @@ fj5col <- findColours(fj5, pal)  # assign colours to classes from classInterval 
 
 ```r
 # plot
-main <- "Zinc [mg kg-1 soil (ppm)]"  # title for legend
 
 plot(meuse, col = fj5col, pch = 19)
 points(meuse, pch = 1)  # outline color points
-legend("topleft", fill = attr(fj5col, "palette"), title = main, legend = names(attr(fj5col, 
-    "table")), bty = "n")
+legend("topleft", fill = attr(fj5col, "palette"), title = "Zinc [mg kg-1 soil (ppm)]", 
+    legend = names(attr(fj5col, "table")), bty = "n")
 ```
 
 ![ ](figure/unnamed-chunk-4.png) 
 
 
-Now, we want to model the zinc concentration process over the area of interest. A simple way to do this is to fit a linear regression model representing the relationship of zinc concentration (dependent variable) to other variables (independent variables), accounting for spatial correlation in the model. The method outlined below is known as [kriging](http://en.wikipedia.org/wiki/Kriging).
+Now, we want to model the zinc concentration "process" over the area of interest. A simple way to do this is to fit a linear regression model representing the relationship of the zinc concentration (dependent) variable to other (independent) variables, accounting for spatial correlation in the model. The method outlined below is known as [kriging](http://en.wikipedia.org/wiki/Kriging).
 
 We are estimating the components of this simple model in two steps:
 
@@ -273,13 +265,13 @@ We are estimating the components of this simple model in two steps:
 
 where, $s$ is a location, $e(s)$ is a zero mean stationary process (random variable), $\epsilon(s)$ is white noise (representing measurement error), and $\eta(s)$ is the spatial process.
 
-We start by estimating the mean function $E[Zinc(s)] = X(s)^T\beta$ (linear regression) where $X$ may include an intercept, polynomial terms in x and y (``trend surface model''), or other spatial covariates; the errors from this regression allow us to calculate an estimate of the spatially correlated process $\eta(s)$.
+We start by estimating the mean function $E[Zinc(s)] = X(s)^T\beta$ (linear regression) where $X$ may include an intercept, polynomial terms in x and y (``trend surface model''), or other spatial covariates; the errors from this regression allow us to calculate an estimate of the spatially correlated process $\eta(s)$ in a second step (see GLS step below).
 
-Using OLS, we are estimating this model: $$ Zinc(s) = E[Zinc(s)] + e(s)$$
+Using ordinary least squares (OLS) regression, we are estimating the first model: $Zinc(s) = E[Zinc(s)] + e(s)$.
 
 
 ```r
-library(nlme)  # package used fit regressions w/ spatially correlated errors
+library(nlme)  # package used fit regressions w/ spatially correlated errors, also includes straightforward linear regression (OLS): lm() function.
 
 rm(meuse)  # clear previous data
 data(meuse)  # reload (in its original data frame form)
@@ -456,7 +448,9 @@ tau2.hat <- fitvg$psill[1]  # estimate nugget (measurement error)
 
 Now, re-estimate the mean function using a [generalized least squares (GLS)](http://en.wikipedia.org/wiki/Generalized_least_squares) model, a linear regression that accounts for heteroskedasticity (changing variance in variables) and covariance between variables, so that the mean function takes into account the spatial correlation we've modeled.
 
-Using GLS, we are estimating this model: $$ Zinc(s) = E[Zinc(s)] + \eta(s) + \epsilon(s)$$
+Using GLS, we are estimating this model: $$ Zinc(s) = E[Zinc(s)] + \eta(s) + \epsilon(s)$$. 
+
+OLS and GLS are GP models.
 
 
 ```r
@@ -520,9 +514,9 @@ summary(glinmod)
 
 We might use this model to describe the relationship between zinc concentrations and other variables (with measures of significance), or, we might use the model to predict zinc concentrations in unmeasured locations. Predictions made with this model are known as kriging predictions.
 
-See this [```gstat``` tutorial](http://cran.r-project.org/web/packages/gstat/vignettes/gstat.pdf), which uses this data set, and some canned functions.
+See this [```gstat``` tutorial](http://cran.r-project.org/web/packages/gstat/vignettes/gstat.pdf), which uses this data set, and some canned functions to go through this analysis.
 
-Another frequentist way to model the coefficients and variogram parameters is using the maximum likelihood method: define a (log) likelihood function for a variable (e.g. zinc) as a function of the model coefficients and variogram parameters; the coefficient and parameter values that maximize the likelihood function are the "maximum likelihood estimators", which should correspond relatively well with the kriging predictor coefficients and parameters.
+Another frequentist way to model the coefficients and variogram parameters is using the maximum likelihood method: define a (log) likelihood function for a variable (e.g. zinc) as a function of the model coefficients and variogram parameters; the coefficient and parameter values that maximize the likelihood function are the "maximum likelihood estimators", which should correspond relatively well with the kriging predictor coefficients and parameters, and are relevant for comparison with Bayesian methods (which make use of the likelihood function).
 
 ### Bayesian Heirarchical Method
 
@@ -672,11 +666,11 @@ summary(glinmod)  # final model
 ```
 
 
-## Bayesian or Heirarchical modeling approach
+## Bayesian Heirarchical Modeling Approach
 
-We are interested in the distribution of some spatial process ($\eta$) of temperature in CA; if we can model this process, we can establish estimates of relationships between temperatures and other variables (like elevation, or vegetation) that account for spatial correlation, and we can predict temperature at new locations. 
+We are interested in the distribution of some spatial process ($\eta$) of temperature in CA; if we can model this process, we can estimate of relationships between temperatures and other variables (like elevation, or vegetation) that account for spatial correlation, and we can predict temperature at new locations. 
 
-Bayesian statistics is based on Bayes Theorem, which boils down to: Posterior $\propto$ Likelihood $\times$ Prior. In this example, that means:
+Bayesian statistics is based on [Bayes Theorem](http://en.wikipedia.org/wiki/Bayes'_theorem), which boils down to: Posterior $\propto$ Likelihood $\times$ Prior. In this example, that means:
 
 $$p(\eta, \theta|y) \propto p(y|\eta, \theta) \times p(\eta | \theta) \times p(\theta)$$
 
@@ -801,7 +795,7 @@ Ginv <- solve(Gamma)  # Inverse Gamma
 
 library(MCMCpack)  # for rinvgamma function in sampler loop
 
-## The hyrbid sampler, this is a Gibbs sampler, except for the conditional
+## The hybrid sampler: this is a Gibbs sampler, except for the conditional
 ## rho sampler, for which a Metropolis Hastings algorithm is used
 
 for (i in 2:B) {
@@ -904,16 +898,6 @@ plot(rho.samps, type = "l")
 plot(t2.samps, type = "l")
 plot(eta.obs.samps[1, ], type = "l")
 
-# look at acceptance rate for rho in sampler
-length(unique(rho.samps[1:B]))/B  # acceptance rate; want around 25%
-```
-
-```
-## [1] 0.183
-```
-
-```r
-
 # remove burn-in to remove starting value effects
 burnin <- 100
 s2.final <- s2.samps[-(1:burnin)]
@@ -935,6 +919,13 @@ acf(t2.final)
 acf(beta.final[1, ])  # beta.final[1,] is the intercept == mean
 acf(eta.obs.final[1, ])
 acf(rho.final)
+
+# look at acceptance rate for rho in sampler
+length(unique(rho.samps[1:B]))/B  # acceptance rate; want around 25%
+```
+
+```
+## [1] 0.183
 ```
 
 ![ ](figure/unnamed-chunk-162.png) 
@@ -943,7 +934,15 @@ acf(rho.final)
 
 ```r
 # Samples size adjusted for autocorrelation
-library(coda, quietly = TRUE)
+library(coda)
+```
+
+```
+## Loading required package: lattice
+```
+
+```r
+
 effectiveSize(s2.final)
 ```
 
@@ -990,11 +989,6 @@ effectiveSize(rho.final)
 
 
 Now, we can predict temperatures at the new locations - see formulas (based on multivariate normal conditional equations) in the "CAtempsexample.pdf".
-
-
-```
-## Warning: variable range greater than fixedBreaks
-```
 
 ![ ](figure/unnamed-chunk-18.png) 
 
